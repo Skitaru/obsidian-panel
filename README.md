@@ -34,10 +34,10 @@ Das gesamte System ist darauf ausgelegt, mit **einem einzigen Befehl installiert
 
 ## 🚀 Installation auf dem Linux VPS
 
-Verbinde dich per SSH mit deinem VPS und führe diesen Befehl aus:
+Verbinde dich per SSH mit deinem VPS und führe diesen einzigen Befehl aus:
 
 ```bash
-git clone https://github.com/Skitaru/obsidian-panel.git /opt/obsidian-panel/panel && cd /opt/obsidian-panel/panel && sudo bash install.sh
+curl -sSL https://raw.githubusercontent.com/Skitaru/obsidian-panel/main/install.sh | bash
 ```
 
 ### Was der Installer automatisch erledigt:
