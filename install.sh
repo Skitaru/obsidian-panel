@@ -164,7 +164,7 @@ run "Launch docker-compose" docker compose up -d --build
 } 2>&1 | tee /tmp/obsidian-install.log
 
 IP=$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')
-clear
+clear 2>/dev/null || true
 echo
 echo -e "  ${G}▓▒░${N} ${BOLD}${W}OBSIDIAN PANEL${N} ${DIM}·  Installation Complete${N}"
 echo -e "  ${G}────────────────────────────────────────────────${N}"
