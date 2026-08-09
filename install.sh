@@ -125,7 +125,7 @@ else
 
   # Nur abfragen, wenn interaktiv und Variablen nicht übergeben wurden
   if [ -c /dev/tty ]; then
-    clear
+    clear 2>/dev/null || true
     echo
     echo -e "  ${G}▓▒░${N} ${BOLD}${W}OBSIDIAN PANEL${N} ${DIM}·  Configuration${N}"
     echo -e "  ${G}────────────────────────────────${N}"
