@@ -4,7 +4,8 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+# Nutzt npm install da im Repository standardmäßig keine lockfiles erzwungen werden
+RUN npm install --no-audit --no-fund
 COPY frontend/ .
 RUN npm run build
 
@@ -19,7 +20,7 @@ RUN mkdir -p /app/data /opt/obsidian-panel/servers
 
 # Backend-Abhängigkeiten installieren
 COPY backend/package*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production --no-audit --no-fund
 
 # Kopiere Backend-Dateien
 COPY backend/ .
