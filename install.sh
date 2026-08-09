@@ -3,8 +3,10 @@
 # ==============================================================================
 # OBSIDIAN PANEL - EIN-ZEILEN-INSTALLATIONSSKRIPT
 # ==============================================================================
-# Dieses Skript installiert Docker (falls nicht vorhanden), richtet die Non-Root-
-# Umgebung ein und startet das Obsidian Panel.
+# Dieses Skript installiert Git, Curl, Docker (falls nicht vorhanden), richtet die 
+# Non-Root-Umgebung ein und startet das Obsidian Panel.
+# Kann direkt per One-Liner ausgeführt werden:
+# curl -sSL https://raw.githubusercontent.com/Skitaru/obsidian-panel/main/install.sh | bash
 # ==============================================================================
 
 # Farben für ansprechende Konsolenausgabe
@@ -21,12 +23,44 @@ echo -e "${BLUE}=====================================================${NC}"
 # 1. Sicherstellen, dass das Skript als root ausgeführt wird
 if [ "$EUID" -ne 0 ]; then
   echo -e "${RED}[FEHLER] Dieses Installationsskript muss als root ausgeführt werden!${NC}"
-  echo -e "Bitte führe es aus mit: ${YELLOW}sudo bash install.sh${NC} oder über den One-Liner."
+  echo -e "Bitte führe es aus mit: ${YELLOW}sudo bash -c \"\$(curl -sSL https://raw.githubusercontent.com/Skitaru/obsidian-panel/main/install.sh)\"${NC}"
   exit 1
 fi
 
-# 2. Docker & Docker Compose Prüfung/Installation
-echo -e "\n${BLUE}[1/5] Prüfe Docker-Umgebung...${NC}"
+# 2. Paketmanager und Abhängigkeiten (Git, Curl) prüfen und installieren
+echo -e "\n${BLUE}[1/6] Prüfe grundlegende System-Abhängigkeiten (Git, Curl)...${NC}"
+if ! [ -x "$(command -v git)" ] || ! [ -x "$(command -v curl)" ]; then
+  echo -e "${YELLOW}Abhängigkeiten fehlen. Starte Installation...${NC}"
+  if [ -x "$(command -v apt-get)" ]; then
+    apt-get update && apt-get install -y git curl
+  elif [ -x "$(command -v yum)" ]; then
+    yum install -y git curl
+  else
+    echo -e "${RED}[FEHLER] Kein unterstützter Paketmanager (apt/yum) gefunden. Bitte installiere Git & Curl manuell.${NC}"
+    exit 1
+  fi
+  echo -e "${GREEN}[OK] Git und Curl wurden erfolgreich installiert.${NC}"
+else
+  echo -e "${GREEN}[OK] Git und Curl sind bereits installiert.${NC}"
+fi
+
+# 3. Repository klonen, falls das Skript per One-Liner (extern) aufgerufen wurde
+INSTALL_DIR="/opt/obsidian-panel/panel"
+echo -e "\n${BLUE}[2/6] Bereite Projektverzeichnis vor...${NC}"
+if [ ! -d "$INSTALL_DIR/.git" ]; then
+  echo -e "${YELLOW}Klone das Obsidian Panel Repository nach $INSTALL_DIR...${NC}"
+  mkdir -p "$INSTALL_DIR"
+  git clone https://github.com/Skitaru/obsidian-panel.git "$INSTALL_DIR"
+  echo -e "${GREEN}[OK] Repository erfolgreich geklont.${NC}"
+else
+  echo -e "${GREEN}[OK] Projektverzeichnis ist bereits vorbereitet.${NC}"
+fi
+
+# In das Verzeichnis wechseln für nachfolgende Aktionen
+cd "$INSTALL_DIR" || exit 1
+
+# 4. Docker & Docker Compose Prüfung/Installation
+echo -e "\n${BLUE}[3/6] Prüfe Docker-Umgebung...${NC}"
 if ! [ -x "$(command -v docker)" ]; then
   echo -e "${YELLOW}Docker ist nicht installiert. Starte automatische Installation...${NC}"
   curl -fsSL https://get.docker.com -o get-docker.sh
@@ -39,14 +73,19 @@ fi
 
 if ! docker compose version &> /dev/null; then
   echo -e "${YELLOW}Docker Compose v2 ist nicht installiert. Installiere...${NC}"
-  apt-get update && apt-get install -y docker-compose-plugin
+  if [ -x "$(command -v apt-get)" ]; then
+    apt-get update && apt-get install -y docker-compose-plugin
+  else
+    echo -e "${RED}[FEHLER] Bitte installiere Docker Compose v2 für dein System manuell.${NC}"
+    exit 1
+  fi
   echo -e "${GREEN}[OK] Docker Compose wurde erfolgreich installiert.${NC}"
 else
   echo -e "${GREEN}[OK] Docker Compose ist bereits installiert.${NC}"
 fi
 
-# 3. System-User & Verzeichnisse erstellen
-echo -e "\n${BLUE}[2/5] Erstelle Dienstbenutzer und Verzeichnisse...${NC}"
+# 5. System-User & Verzeichnisse erstellen
+echo -e "\n${BLUE}[4/6] Erstelle Dienstbenutzer und Dateirechte...${NC}"
 # Erstelle Benutzer 'obsidian' ohne Login-Shell, falls er nicht existiert
 if ! id "obsidian" &>/dev/null; then
   useradd -r -s /bin/false obsidian
@@ -68,20 +107,23 @@ chown -R obsidian:docker /opt/obsidian-panel
 chmod -R 770 /opt/obsidian-panel
 echo -e "${GREEN}[OK] Verzeichnisstruktur unter /opt/obsidian-panel eingerichtet.${NC}"
 
-# 4. Ersteinrichtung & .env Konfiguration
-echo -e "\n${BLUE}[3/5] Konfiguration einrichten...${NC}"
-cd /opt/obsidian-panel/panel
+# 6. Ersteinrichtung & .env Konfiguration
+echo -e "\n${BLUE}[5/6] Konfiguration einrichten...${NC}"
 
 # Zufälliges JWT Secret generieren
 JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "obsidian_default_secret_key_12345")
 
-# Frage nach Admin-Passwort
-read -p "Gib ein initiales Admin-Passwort ein [Standard: obsidian123]: " ADMIN_PASSWORD
-ADMIN_PASSWORD=${ADMIN_PASSWORD:-obsidian123}
-
-# Frage nach Panel-Port
-read -p "Gib den Port für das Web-Interface an [Standard: 8080]: " PANEL_PORT
-PANEL_PORT=${PANEL_PORT:-8080}
+# Frage nach Admin-Passwort (interaktiv, mit Fallback für automatisierte Setups)
+if [ -t 0 ]; then
+  read -p "Gib ein initiales Admin-Passwort ein [Standard: obsidian123]: " ADMIN_PASSWORD
+  ADMIN_PASSWORD=${ADMIN_PASSWORD:-obsidian123}
+  read -p "Gib den Port für das Web-Interface an [Standard: 8080]: " PANEL_PORT
+  PANEL_PORT=${PANEL_PORT:-8080}
+else
+  ADMIN_PASSWORD="obsidian123"
+  PANEL_PORT="8080"
+  echo -e "${YELLOW}Nicht-interaktive Konsole erkannt. Verwende Standardwerte.${NC}"
+fi
 
 # Schreibe .env Datei
 cat <<EOF > .env
@@ -93,66 +135,15 @@ chmod 600 .env
 chown obsidian:docker .env
 echo -e "${GREEN}[OK] .env-Konfiguration wurde erstellt.${NC}"
 
-# 5. docker-compose.yml herunterladen (In diesem Prototyp kopieren wir sie)
-echo -e "\n${BLUE}[4/5] Bereite Docker Compose-Dateien vor...${NC}"
-# (Im echten One-Liner würde dies von GitHub geladen werden)
-# Wir kopieren die Compose-Datei aus dem Repository-Verzeichnis
-cp /C/Users/bross/Desktop/Claude/Gemini/Discord_Bot/docker-compose.yml /opt/obsidian-panel/panel/docker-compose.yml 2>/dev/null || \
-cp C:\\Users\\bross\\Desktop\\Claude\\Gemini\\Discord_Bot\\docker-compose.yml /opt/obsidian-panel/panel/docker-compose.yml 2>/dev/null || \
-cat <<EOF > /opt/obsidian-panel/panel/docker-compose.yml
-version: '3.8'
-services:
-  socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
-    container_name: obsidian-socket-proxy
-    privileged: false
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - CONTAINERS=1
-      - VOLUMES=1
-      - IMAGES=1
-      - NETWORKS=1
-      - POST=1
-      - DELETE=1
-    ports:
-      - "127.0.0.1:2375:2375"
-    restart: always
-
-  panel:
-    image: obsidianpanel/panel:latest
-    container_name: obsidian-panel
-    ports:
-      - "\${PANEL_PORT:-8080}:8080"
-    environment:
-      - NODE_ENV=production
-      - DOCKER_HOST=tcp://socket-proxy:2375
-      - JWT_SECRET=\${JWT_SECRET}
-      - INITIAL_ADMIN_PASSWORD=\${ADMIN_PASSWORD}
-      - DATABASE_URL=file:/app/data/obsidian.db
-      - HOST_SERVERS_PATH=/opt/obsidian-panel/servers
-    volumes:
-      - ./data:/app/data
-      - /opt/obsidian-panel/servers:/opt/obsidian-panel/servers
-    depends_on:
-      - socket-proxy
-    restart: always
-EOF
-
-chown obsidian:docker /opt/obsidian-panel/panel/docker-compose.yml
-echo -e "${GREEN}[OK] docker-compose.yml wurde platziert.${NC}"
-
-# 6. Panel starten
-echo -e "\n${BLUE}[5/5] Starte Obsidian Panel...${NC}"
-# Führe Docker Compose als 'obsidian' aus oder über sudo mit Gruppe
-# (Wir führen es im Kontext des Skripts aus, stellen aber sicher, dass die Volumes dem richtigen Benutzer gehören)
+# 7. Panel starten
+echo -e "\n${BLUE}[6/6] Starte Obsidian Panel...${NC}"
 docker compose up -d
 
 echo -e "\n${GREEN}=====================================================${NC}"
 echo -e "${GREEN}          INSTALLATION ERFOLGREICH BEENDET!          ${NC}"
 echo -e "${GREEN}=====================================================${NC}"
-echo -e "Das Obsidian Panel wurde erfolgreich gestartet."
-echo -e "Erreichbar unter: ${YELLOW}http://localhost:$PANEL_PORT${NC}"
+echo -e "Das Obsidian Panel wurde erfolgreich im Hintergrund gestartet."
+echo -e "Erreichbar unter: ${YELLOW}http://<DEINE-VPS-IP>:$PANEL_PORT${NC}"
 echo -e "Initialer Admin-Benutzer: ${YELLOW}admin${NC}"
 echo -e "Initiales Admin-Passwort: ${YELLOW}$ADMIN_PASSWORD${NC}"
 echo -e "Minecraft Server Verzeichnis: ${YELLOW}/opt/obsidian-panel/servers/${NC}"
