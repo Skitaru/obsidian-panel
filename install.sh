@@ -64,6 +64,8 @@ run "git, curl & utilities" apt-get install -y -qq curl wget git gnupg ca-certif
 # STEP 2: Deploy Panel Files
 # --------------------------------------------------
 step 2 $TOTAL_STEPS "Deploy Panel Files"
+run "Configure git safe directory" git config --global --add safe.directory "$PANEL_DIR/panel"
+
 if [ ! -d "$PANEL_DIR/panel/.git" ]; then
   run "Create dir" mkdir -p "$PANEL_DIR/panel"
   run "Clone repository" git clone "$REPO_URL" "$PANEL_DIR/panel"
