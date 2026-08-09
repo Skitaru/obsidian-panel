@@ -124,7 +124,7 @@ else
   JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "obsidian_default_secret_key_12345")
 
   # Nur abfragen, wenn interaktiv und Variablen nicht übergeben wurden
-  if [ -c /dev/tty ]; then
+  if [ -t 1 ]; then
     clear 2>/dev/null || true
     echo
     echo -e "  ${G}▓▒░${N} ${BOLD}${W}OBSIDIAN PANEL${N} ${DIM}·  Configuration${N}"
