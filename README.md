@@ -34,10 +34,12 @@ Das gesamte System ist darauf ausgelegt, mit **einem einzigen Befehl installiert
 
 ## 🚀 Installation auf dem Linux VPS
 
-Verbinde dich per SSH mit deinem VPS und führe diesen einzigen Befehl aus:
+Dieses Skript ist vollständig kompatibel mit **Debian 12, Debian 13 und allen aktuellen Ubuntu-Versionen**. 
+
+Da frische Server-Installationen (insbesondere Minimal-Templates) oft ohne installierte Werkzeuge ausgeliefert werden, verwende diesen kombinierten Befehl. Er stellt sicher, dass `curl` installiert wird und startet dann die automatische Installation:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Skitaru/obsidian-panel/main/install.sh | bash
+apt update && apt install -y curl && curl -sSL https://raw.githubusercontent.com/Skitaru/obsidian-panel/main/install.sh | bash
 ```
 
 ### Was der Installer automatisch erledigt:
