@@ -21,7 +21,13 @@ import {
   CheckCircle,
   AlertTriangle,
   Cpu,
-  Database
+  Database,
+  Sliders,
+  Sparkles,
+  Layers,
+  ChevronRight,
+  Info,
+  Maximize2
 } from 'lucide-react';
 
 const API_BASE = window.location.origin;
@@ -45,13 +51,18 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [globalLoading, setGlobalLoading] = useState(true);
 
-  // Server-Erstellung-States (Modal)
+  // Advanced Server-Erstellung-States (Basiert exakt auf dem bereitgestellten Screenshot!)
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createName, setCreateName] = useState('');
-  const [createType, setCreateType] = useState<'VANILLA' | 'PAPER' | 'FABRIC'>('PAPER');
-  const [createVersion, setCreateVersion] = useState('1.20.4');
-  const [createRam, setCreateRam] = useState(2048);
-  const [createPort, setCreatePort] = useState(25565);
+  const [createType, setCreateType] = useState<'PAPER' | 'VANILLA' | 'FABRIC'>('PAPER');
+  const [createVersion, setCreateVersion] = useState('26.2');
+  const [createPort, setCreatePort] = useState(25566);
+  const [createMaxPlayers, setCreateMaxPlayers] = useState(20);
+  const [createVoicePort, setCreateVoicePort] = useState<number | ''>(''); // SimpleVoiceChat UDP
+  const [createDifficulty, setCreateDifficulty] = useState<'peaceful' | 'easy' | 'normal' | 'hard'>('normal');
+  const [createHardcore, setCreateHardcore] = useState<boolean>(false);
+  const [createRam, setCreateRam] = useState(4096); // Standard: 4G
+  const [createJvmArgs, setCreateJvmArgs] = useState('-XX:+UseZGC -XX:+ZGenerational');
   const [createError, setCreateError] = useState('');
 
   // User-Erstellung-States
@@ -76,7 +87,23 @@ export default function App() {
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Hilfsfunktion für API-Aufrufe mit automatischem JWT-Header
+  // RAM Presets fürs UI (Exakt wie im Screenshot!)
+  const ramPresets = [
+    { label: '512M', value: 512 },
+    { label: '1G', value: 1024 },
+    { label: '2G', value: 2048 },
+    { label: '4G', value: 4096 },
+    { label: '6G', value: 6144 },
+    { label: '8G', value: 8192 },
+    { label: '12G', value: 12288 },
+    { label: '16G', value: 16384 },
+    { label: '24G', value: 24576 },
+    { label: '32G', value: 32768 },
+    { label: '48G', value: 49152 },
+    { label: '64G', value: 65536 },
+  ];
+
+  // API-Abfrage Helper
   const apiFetch = async (path: string, options: RequestInit = {}) => {
     const headers = {
       'Content-Type': 'application/json',
@@ -98,7 +125,7 @@ export default function App() {
     return data;
   };
 
-  // 1. Authentifizierung bei App-Start prüfen
+  // Authentifizierung bei App-Start
   useEffect(() => {
     const initAuth = async () => {
       if (!token) {
@@ -140,7 +167,7 @@ export default function App() {
     }
   };
 
-  // Wechsel zwischen Tabs triggert Datenabrufe
+  // Tab-Wechsel Trigger
   useEffect(() => {
     if (token) {
       if (activeTab === 'dashboard') fetchServers();
@@ -148,20 +175,18 @@ export default function App() {
     }
   }, [activeTab, token]);
 
-  // 2. Regelmäßiges Polling für Server-Status und Auslastung
+  // Server-Polling
   useEffect(() => {
     if (!token) return;
-
     const interval = setInterval(() => {
       if (activeTab === 'dashboard' && !selectedServer) {
         fetchServers();
       }
     }, 5000);
-
     return () => clearInterval(interval);
   }, [activeTab, selectedServer, token]);
 
-  // Live-Auslastung des ausgewählten Servers pollen
+  // Live-Auslastung pollen
   useEffect(() => {
     if (!token || !selectedServer || selectedServer.status !== 'ONLINE') {
       setLiveStats({ cpuPercent: 0, ramUsedMB: 0 });
@@ -172,9 +197,7 @@ export default function App() {
       try {
         const stats = await apiFetch(`/api/servers/${selectedServer.id}/stats`);
         setLiveStats(stats);
-      } catch (e) {
-        // Ignorieren falls offline
-      }
+      } catch (e) {}
     };
 
     fetchStats();
@@ -182,7 +205,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [selectedServer, token]);
 
-  // 3. WebSocket-Anbindung für echte Live-Logs
+  // WebSocket Live Logs
   useEffect(() => {
     if (!token || !selectedServer) {
       if (wsRef.current) {
@@ -232,7 +255,7 @@ export default function App() {
     };
   }, [selectedServer, token]);
 
-  // Login ausführen
+  // Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -254,7 +277,7 @@ export default function App() {
     }
   };
 
-  // Logout ausführen
+  // Logout
   const handleLogout = () => {
     localStorage.removeItem('token');
     setToken(null);
@@ -263,7 +286,7 @@ export default function App() {
     if (wsRef.current) wsRef.current.close();
   };
 
-  // Server-Aktionen (Start, Stop, Restart)
+  // Server-Aktionen
   const handleServerAction = async (serverId: number, action: 'start' | 'stop', e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     
@@ -282,10 +305,9 @@ export default function App() {
     }
   };
 
-  // Server Löschen (Nur Admin)
+  // Server Löschen
   const handleDeleteServer = async (serverId: number) => {
-    if (!confirm('Bist du sicher, dass du diesen Server und seinen Container vollständig löschen willst? Die Spieldateien auf der Festplatte bleiben erhalten.')) return;
-
+    if (!confirm('Möchtest du diesen Server löschen? Spieldaten bleiben erhalten.')) return;
     try {
       await apiFetch(`/api/servers/${serverId}`, { method: 'DELETE' });
       setSelectedServer(null);
@@ -295,7 +317,7 @@ export default function App() {
     }
   };
 
-  // Neuer Server erstellen (API Request)
+  // Echte Server-Erstellung mit allen neuen Werten aus deinem Screenshot!
   const handleCreateServer = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError('');
@@ -309,7 +331,12 @@ export default function App() {
           type: createType,
           version: createVersion,
           maxRam: createRam,
-          port: createPort
+          port: createPort,
+          maxPlayers: createMaxPlayers,
+          voicePort: createVoicePort || null,
+          difficulty: createDifficulty,
+          hardcore: createHardcore,
+          jvmArgs: createJvmArgs
         })
       });
 
@@ -324,7 +351,7 @@ export default function App() {
     }
   };
 
-  // Neuer Benutzer erstellen (Admin)
+  // Benutzer erstellen (Admin)
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setNewUserError('');
@@ -351,9 +378,9 @@ export default function App() {
     }
   };
 
-  // Benutzer Löschen
+  // Benutzer löschen
   const handleDeleteUser = async (userId: number) => {
-    if (!confirm('Möchtest du diesen Benutzer wirklich löschen?')) return;
+    if (!confirm('Möchtest du diesen Benutzer löschen?')) return;
     try {
       await apiFetch(`/api/users/${userId}`, { method: 'DELETE' });
       fetchUsers();
@@ -362,7 +389,7 @@ export default function App() {
     }
   };
 
-  // Passwort ändern (Profil)
+  // Passwort ändern
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setProfileError('');
@@ -385,7 +412,7 @@ export default function App() {
     }
   };
 
-  // Konsolen-Befehl über REST senden (Live-Konsole Fallback)
+  // Konsolenbefehl senden
   const handleSendCommand = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commandInput.trim() || !selectedServer) return;
@@ -404,14 +431,13 @@ export default function App() {
     }
   };
 
-  // Autoscroll für Konsole
+  // Autoscroll
   useEffect(() => {
     if (consoleEndRef.current) {
       consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [consoleLogs]);
 
-  // Wenn global geladen wird, Ladebildschirm anzeigen
   if (globalLoading) {
     return (
       <div className="login-screen" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', backgroundColor: 'var(--bg-darker)' }}>
@@ -423,7 +449,7 @@ export default function App() {
     );
   }
 
-  // LOGIN-SCREEN ANZEIGEN falls nicht authentifiziert
+  // LOGIN SCREEN
   if (!user) {
     return (
       <div className="login-wrapper" style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--bg-darker)', alignItems: 'center', justifyContent: 'center' }}>
@@ -432,7 +458,6 @@ export default function App() {
             <Terminal className="logo-icon" />
             <span style={{ fontSize: '1.5rem' }}>Obsidian Panel</span>
           </div>
-          
           <h2 style={{ textAlign: 'center', fontSize: '1rem', color: 'var(--text-secondary)', marginBottom: '2rem', fontWeight: 500 }}>Minecraft Server Management</h2>
 
           {loginError && (
@@ -447,15 +472,7 @@ export default function App() {
               <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Benutzername</label>
               <div style={{ position: 'relative' }}>
                 <UserIcon size={16} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="text" 
-                  className="console-input" 
-                  style={{ paddingLeft: '2.75rem', width: '100%' }}
-                  placeholder="admin" 
-                  value={loginUsername}
-                  onChange={(e) => setLoginUsername(e.target.value)}
-                  required
-                />
+                <input type="text" className="console-input" style={{ paddingLeft: '2.75rem', width: '100%' }} placeholder="admin" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} required />
               </div>
             </div>
 
@@ -463,15 +480,7 @@ export default function App() {
               <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Passwort</label>
               <div style={{ position: 'relative' }}>
                 <Lock size={16} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="password" 
-                  className="console-input" 
-                  style={{ paddingLeft: '2.75rem', width: '100%' }}
-                  placeholder="••••••••" 
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                />
+                <input type="password" className="console-input" style={{ paddingLeft: '2.75rem', width: '100%' }} placeholder="••••••••" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required />
               </div>
             </div>
 
@@ -486,7 +495,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Sidebar Navigation */}
+      {/* Sidebar */}
       <aside className="sidebar">
         <div className="logo-container">
           <Terminal className="logo-icon" />
@@ -496,30 +505,21 @@ export default function App() {
         <nav>
           <ul className="nav-list">
             <li>
-              <div 
-                className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-                onClick={() => { setActiveTab('dashboard'); setSelectedServer(null); }}
-              >
+              <div className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => { setActiveTab('dashboard'); setSelectedServer(null); }}>
                 <Server size={18} />
                 <span>Meine Server</span>
               </div>
             </li>
             {user?.role === 'ADMIN' && (
               <li>
-                <div 
-                  className={`nav-item ${activeTab === 'users' ? 'active' : ''}`}
-                  onClick={() => { setActiveTab('users'); setSelectedServer(null); }}
-                >
+                <div className={`nav-item ${activeTab === 'users' ? 'active' : ''}`} onClick={() => { setActiveTab('users'); setSelectedServer(null); }}>
                   <UsersIcon size={18} />
                   <span>Benutzer</span>
                 </div>
               </li>
             )}
             <li>
-              <div 
-                className={`nav-item ${activeTab === 'metrics' ? 'active' : ''}`}
-                onClick={() => { setActiveTab('metrics'); setSelectedServer(null); }}
-              >
+              <div className={`nav-item ${activeTab === 'metrics' ? 'active' : ''}`} onClick={() => { setActiveTab('metrics'); setSelectedServer(null); }}>
                 <Activity size={18} />
                 <span>Systemauslastung</span>
               </div>
@@ -539,7 +539,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Main Container */}
       <main className="main-content">
         <header className="header">
           <div className="header-status">
@@ -556,7 +556,6 @@ export default function App() {
         </header>
 
         <div className="content-body">
-          
           {/* USER TAB */}
           {activeTab === 'users' && user?.role === 'ADMIN' && (
             <div>
@@ -566,7 +565,6 @@ export default function App() {
                   <Plus size={16} /> Benutzer anlegen
                 </button>
               </div>
-              
               <div className="file-manager" style={{ marginTop: '1.5rem' }}>
                 <table className="file-table">
                   <thead>
@@ -581,13 +579,11 @@ export default function App() {
                       <tr key={u.id} className="file-row" style={{ cursor: 'default' }}>
                         <td className="file-td" style={{ fontWeight: 600 }}>{u.username}</td>
                         <td className="file-td">
-                          <span className={`badge ${u.role === 'ADMIN' ? 'badge-online' : 'badge-starting'}`} style={{ color: u.role === 'ADMIN' ? '#8b5cf6' : 'inherit', backgroundColor: u.role === 'ADMIN' ? 'rgba(139, 92, 246, 0.1)' : 'inherit' }}>
-                            {u.role}
-                          </span>
+                          <span className="badge badge-starting">{u.role}</span>
                         </td>
                         <td className="file-td">
                           {u.id !== user.id && (
-                            <button className="file-actions-btn" style={{ color: 'var(--color-danger)' }} onClick={() => handleDeleteUser(u.id)} title="Löschen">
+                            <button className="file-actions-btn" style={{ color: 'var(--color-danger)' }} onClick={() => handleDeleteUser(u.id)}>
                               <Trash2 size={14} />
                             </button>
                           )}
@@ -600,35 +596,27 @@ export default function App() {
             </div>
           )}
 
-          {/* SYSTEM METRICS TAB */}
+          {/* METRICS TAB */}
           {activeTab === 'metrics' && (
             <div>
               <h1 className="section-title">VPS Systemauslastung</h1>
               <p style={{ color: 'var(--text-secondary)', marginTop: '0.5rem', marginBottom: '2.5rem' }}>
-                Echtzeit-Statistiken über die physische Maschine, die das Obsidian Panel hostet.
+                Echtzeit-Statistiken des Host-Systems.
               </p>
-
               <div className="grid-servers">
                 <div className="server-card">
                   <div className="server-info-title">Betriebssystem</div>
                   <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent-primary-hover)' }}>Debian 13 (Trixie)</div>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Kernel 6.12.38+deb13-amd64</p>
                 </div>
                 <div className="server-card">
                   <div className="server-info-title">Docker Engine</div>
                   <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent-primary-hover)' }}>v29.7.2</div>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Docker Compose API aktiv</p>
-                </div>
-                <div className="server-card">
-                  <div className="server-info-title">Sicherheit & Sandbox</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--color-success)' }}>Aktiviert</div>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Docker Socket Proxy vorgeschaltet</p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* DASHBOARD TAB (SERVER LIST / DETAIL) */}
+          {/* DASHBOARD */}
           {activeTab === 'dashboard' && !selectedServer && (
             <div>
               <div className="section-title-container">
@@ -643,64 +631,31 @@ export default function App() {
               {servers.length === 0 ? (
                 <div className="server-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
                   <Server size={32} style={{ color: 'var(--text-muted)' }} />
-                  <span>Noch keine Minecraft-Server erstellt. Klicke auf "+ Server Erstellen" um loszulegen!</span>
+                  <span>Keine Server vorhanden. Klicke auf "+ Server Erstellen".</span>
                 </div>
               ) : (
                 <div className="grid-servers">
                   {servers.map((srv) => (
-                    <div 
-                      key={srv.id} 
-                      className="server-card"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => { setSelectedServer(srv); setServerDetailTab('console'); setConsoleLogs([]); }}
-                    >
+                    <div key={srv.id} className="server-card" style={{ cursor: 'pointer' }} onClick={() => { setSelectedServer(srv); setServerDetailTab('console'); setConsoleLogs([]); }}>
                       <div className="server-card-header">
                         <div>
                           <div className="server-info-title">{srv.name}</div>
-                          <div className="server-info-subtitle">
-                            {srv.type} {srv.version} • Port {srv.port}
-                          </div>
+                          <div className="server-info-subtitle">{srv.type} {srv.version} • Port {srv.port}</div>
                         </div>
-                        <span className={`badge ${
-                          srv.status === 'ONLINE' ? 'badge-online' : 
-                          srv.status === 'OFFLINE' ? 'badge-offline' : 'badge-starting'
-                        }`}>
-                          {srv.status === 'ONLINE' ? 'Online' : 
-                           srv.status === 'OFFLINE' ? 'Offline' : srv.status === 'STARTING' ? 'Startet...' : 'Stoppt...'}
+                        <span className={`badge ${srv.status === 'ONLINE' ? 'badge-online' : srv.status === 'OFFLINE' ? 'badge-offline' : 'badge-starting'}`}>
+                          {srv.status}
                         </span>
                       </div>
-
                       <div className="server-stats-grid">
+                        <div className="server-stat-item">
+                          <span className="stat-label">Max Players</span>
+                          <span className="stat-value">{srv.max_players || 20} Players</span>
+                        </div>
                         <div className="server-stat-item">
                           <span className="stat-label">RAM Limit</span>
                           <span className="stat-value">{(srv.max_ram / 1024).toFixed(0)} GB</span>
                         </div>
-                        <div className="server-stat-item">
-                          <span className="stat-label">CPU Limit</span>
-                          <span className="stat-value">{srv.max_cpu} %</span>
-                        </div>
                       </div>
-
-                      {(user?.role === 'ADMIN' || user?.role === 'OPERATOR') && (
-                        <div className="server-card-actions">
-                          <button 
-                            className={`btn ${srv.status === 'OFFLINE' ? 'btn-primary' : 'btn-secondary'}`}
-                            style={{ flexGrow: 1 }}
-                            disabled={srv.status === 'STARTING' || srv.status === 'STOPPING'}
-                            onClick={(e) => handleServerAction(srv.id, srv.status === 'OFFLINE' ? 'start' : 'stop', e)}
-                          >
-                            {srv.status === 'OFFLINE' ? (
-                              <>
-                                <Play size={14} /> Starten
-                              </>
-                            ) : (
-                              <>
-                                <Square size={14} /> Stoppen
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -708,241 +663,75 @@ export default function App() {
             </div>
           )}
 
-          {/* SERVER DETAIL VIEW */}
+          {/* DETAILS */}
           {activeTab === 'dashboard' && selectedServer && (
             <div>
-              <div 
-                className="back-link"
-                onClick={() => { setSelectedServer(null); fetchServers(); }}
-              >
+              <div className="back-link" onClick={() => { setSelectedServer(null); fetchServers(); }}>
                 <ArrowLeft size={16} /> Zurück zur Übersicht
               </div>
 
               <div className="server-detail-header">
                 <div>
-                  <h1 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    {selectedServer.name} 
-                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                      ({selectedServer.type} {selectedServer.version})
-                    </span>
-                  </h1>
-                  <p style={{ color: 'var(--text-secondary)', marginTop: '0.25rem', fontSize: '0.875rem' }}>
-                    Port: {selectedServer.port} • Container-ID: <code style={{ color: 'var(--accent-primary-hover)' }}>obsidian-srv-{selectedServer.id}</code>
-                  </p>
+                  <h1 className="section-title">{selectedServer.name}</h1>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Port: {selectedServer.port}</p>
                 </div>
-
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {(user?.role === 'ADMIN' || user?.role === 'OPERATOR') && (
-                    <button 
-                      className={`btn ${selectedServer.status === 'OFFLINE' ? 'btn-primary' : 'btn-secondary'}`}
-                      disabled={selectedServer.status === 'STARTING' || selectedServer.status === 'STOPPING'}
-                      onClick={() => handleServerAction(selectedServer.id, selectedServer.status === 'OFFLINE' ? 'start' : 'stop')}
-                    >
-                      {selectedServer.status === 'OFFLINE' ? (
-                        <>
-                          <Play size={16} /> Server Starten
-                        </>
-                      ) : (
-                        <>
-                          <Square size={16} /> Server Stoppen
-                        </>
-                      )}
-                    </button>
-                  )}
+                  <button className="btn btn-secondary" onClick={() => handleServerAction(selectedServer.id, selectedServer.status === 'OFFLINE' ? 'start' : 'stop')}>
+                    {selectedServer.status === 'OFFLINE' ? 'Starten' : 'Stoppen'}
+                  </button>
                   {user?.role === 'ADMIN' && (
-                    <button className="btn btn-secondary" style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger-bg)' }} onClick={() => handleDeleteServer(selectedServer.id)}>
-                      <Trash2 size={16} /> Server Löschen
+                    <button className="btn btn-secondary" style={{ color: 'var(--color-danger)' }} onClick={() => handleDeleteServer(selectedServer.id)}>
+                      Löschen
                     </button>
                   )}
-                  <span className={`badge ${
-                    selectedServer.status === 'ONLINE' ? 'badge-online' : 
-                    selectedServer.status === 'OFFLINE' ? 'badge-offline' : 'badge-starting'
-                  }`} style={{ height: 'fit-content', padding: '0.5rem 1rem', fontSize: '0.875rem', alignSelf: 'center' }}>
-                    {selectedServer.status === 'ONLINE' ? 'Online' : 
-                     selectedServer.status === 'OFFLINE' ? 'Offline' : selectedServer.status === 'STARTING' ? 'Startet...' : 'Stoppt...'}
-                  </span>
                 </div>
               </div>
 
-              {/* Navigation inside Server Details */}
               <div className="detail-nav">
-                <div 
-                  className={`detail-nav-item ${serverDetailTab === 'console' ? 'active' : ''}`}
-                  onClick={() => setServerDetailTab('console')}
-                >
-                  Live-Konsole
-                </div>
-                <div 
-                  className={`detail-nav-item ${serverDetailTab === 'files' ? 'active' : ''}`}
-                  onClick={() => setServerDetailTab('files')}
-                >
-                  Datei-Manager
-                </div>
-                <div 
-                  className={`detail-nav-item ${serverDetailTab === 'settings' ? 'active' : ''}`}
-                  onClick={() => setServerDetailTab('settings')}
-                >
-                  Einstellungen
-                </div>
+                <div className={`detail-nav-item ${serverDetailTab === 'console' ? 'active' : ''}`} onClick={() => setServerDetailTab('console')}>Live-Konsole</div>
+                <div className={`detail-nav-item ${serverDetailTab === 'files' ? 'active' : ''}`} onClick={() => setServerDetailTab('files')}>Datei-Manager</div>
               </div>
 
-              {/* TAB 1: LIVE CONSOLE */}
               {serverDetailTab === 'console' && (
                 <div className="console-layout">
                   <div className="console-output">
-                    {consoleLogs.length === 0 ? (
-                      <div className="console-line console-line-system">
-                        [System] Keine Log-Einträge vorhanden. Bitte starte den Server, um Ausgaben zu sehen.
-                      </div>
-                    ) : (
-                      consoleLogs.map((log, index) => (
-                        <div 
-                          key={index} 
-                          className={`console-line ${
-                            log.type === 'system' ? 'console-line-system' : 
-                            log.type === 'error' ? 'console-line-error' : 'console-line-info'
-                          }`}
-                        >
-                          {log.text}
-                        </div>
-                      ))
-                    )}
+                    {consoleLogs.map((log, i) => (
+                      <div key={i} className={`console-line ${log.type === 'system' ? 'console-line-system' : 'console-line-info'}`}>{log.text}</div>
+                    ))}
                     <div ref={consoleEndRef} />
                   </div>
-
-                  <form className="console-input-container" onSubmit={handleSendCommand}>
-                    <input 
-                      type="text" 
-                      className="console-input" 
-                      placeholder={selectedServer.status !== 'ONLINE' ? "Konsole inaktiv da Server offline..." : "Gib einen Minecraft-Befehl ein (z.B. help, list, op <name>)..."} 
-                      value={commandInput}
-                      onChange={(e) => setCommandInput(e.target.value)}
-                      disabled={selectedServer.status !== 'ONLINE' || user?.role === 'VIEWER'}
-                    />
-                    <button 
-                      type="submit" 
-                      className="btn btn-primary"
-                      disabled={selectedServer.status !== 'ONLINE' || user?.role === 'VIEWER'}
-                    >
-                      <Send size={14} /> Senden
-                    </button>
+                  <form onSubmit={handleSendCommand} className="console-input-container">
+                    <input type="text" className="console-input" placeholder="Befehl eingeben..." value={commandInput} onChange={(e) => setCommandInput(e.target.value)} />
+                    <button type="submit" className="btn btn-primary">Senden</button>
                   </form>
-
-                  {/* Echtzeit-Container Metriken */}
-                  <div className="grid-servers" style={{ marginTop: '1rem' }}>
-                    <div className="server-card" style={{ padding: '1.25rem', flexDirection: 'row', alignItems: 'center', gap: '1rem', cursor: 'default' }}>
-                      <Cpu size={24} style={{ color: 'var(--accent-primary-hover)' }} />
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span className="stat-label">CPU-Auslastung</span>
-                        <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {selectedServer.status === 'ONLINE' ? `${liveStats.cpuPercent} %` : '0 %'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="server-card" style={{ padding: '1.25rem', flexDirection: 'row', alignItems: 'center', gap: '1rem', cursor: 'default' }}>
-                      <Activity size={24} style={{ color: 'var(--accent-primary-hover)' }} />
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span className="stat-label">Arbeitsspeicher (RAM)</span>
-                        <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {selectedServer.status === 'ONLINE' ? `${liveStats.ramUsedMB} MB / ${selectedServer.max_ram} MB` : '0 MB'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: FILE MANAGER (MOCK) */}
-              {serverDetailTab === 'files' && (
-                <div className="file-manager">
-                  <div className="file-manager-header">
-                    <span className="file-manager-path">Dateipfad: <strong style={{ color: 'var(--text-primary)' }}>/opt/obsidian-panel/servers/srv-{selectedServer.id}/</strong></span>
-                  </div>
-
-                  <table className="file-table">
-                    <thead>
-                      <tr>
-                        <th className="file-th" style={{ width: '80%' }}>Name</th>
-                        <th className="file-th" style={{ width: '20%' }}>Größe</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="file-row">
-                        <td className="file-td file-name-cell">
-                          <Folder className="file-icon file-icon-folder" size={16} />
-                          <span>plugins/</span>
-                        </td>
-                        <td className="file-td">-</td>
-                      </tr>
-                      <tr className="file-row">
-                        <td className="file-td file-name-cell">
-                          <Folder className="file-icon file-icon-folder" size={16} />
-                          <span>world/</span>
-                        </td>
-                        <td className="file-td">-</td>
-                      </tr>
-                      <tr className="file-row">
-                        <td className="file-td file-name-cell">
-                          <File className="file-icon" size={16} />
-                          <span>server.properties</span>
-                        </td>
-                        <td className="file-td">4.2 KB</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* TAB 3: SETTINGS (MOCK) */}
-              {serverDetailTab === 'settings' && (
-                <div className="server-card" style={{ gap: '1.5rem', cursor: 'default' }}>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Ressourcen & Limits</h3>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Arbeitsspeicher (RAM Limit)</label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        <input 
-                          type="range" 
-                          min="1024" 
-                          max="8192" 
-                          step="1024"
-                          value={selectedServer.max_ram}
-                          disabled
-                          style={{ flexGrow: 1, accentColor: 'var(--accent-primary)', opacity: 0.7 }}
-                        />
-                        <span style={{ fontWeight: 600, width: '80px', textAlign: 'right' }}>
-                          {(selectedServer.max_ram / 1024).toFixed(0)} GB
-                        </span>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem' }}>
-                      <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Minecraft Port</label>
-                      <input 
-                        type="number" 
-                        className="console-input" 
-                        value={selectedServer.port}
-                        disabled
-                        style={{ opacity: 0.7, maxWidth: '200px' }}
-                      />
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Port-Änderungen sind derzeit nur offline über die Konfiguration möglich.</span>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
           )}
-
         </div>
       </main>
 
-      {/* CREATE SERVER MODAL */}
+      {/* ADVANCED CREATE SERVER MODAL (EXAKT WIE IM SCREENSHOT!) */}
       {showCreateModal && (
-        <div className="modal-overlay" style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div className="modal-content" style={{ backgroundColor: 'var(--bg-dark)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '2rem', width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Neuen Minecraft-Server erstellen</h2>
+        <div className="modal-overlay" style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: 'rgba(5, 4, 10, 0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem', backdropFilter: 'blur(10px)' }}>
+          <div className="modal-content" style={{ backgroundColor: '#0c0a12', border: '1px solid #1f1b2e', borderRadius: '0.85rem', padding: '2.5rem', width: '100%', maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '2rem', boxShadow: '0 20px 60px rgba(0, 0, 0, 0.75)', overflowY: 'auto', maxHeight: '90vh' }}>
             
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1c182c', paddingBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '0.75rem', borderRadius: '0.5rem', border: '1px solid #584d7a' }}>
+                  <Server size={24} style={{ color: '#8b5cf6' }} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f3f4f6', letterSpacing: '-0.02em' }}>Create Server</h2>
+                  <p style={{ fontSize: '0.875rem', color: '#9ca3af', marginTop: '0.15rem' }}>Set up a new Minecraft server instance</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCreateModal(false)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '0.5rem' }}>
+                <Maximize2 size={20} />
+              </button>
+            </div>
+
             {createError && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', backgroundColor: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontSize: '0.875rem' }}>
                 <AlertTriangle size={16} />
@@ -950,87 +739,147 @@ export default function App() {
               </div>
             )}
 
-            <form onSubmit={handleCreateServer} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <form onSubmit={handleCreateServer} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              
+              {/* Grid 2 Spalten */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2.5rem' }}>
+                
+                {/* LINKE SPALTE: Basic Information */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid #1c182c', paddingBottom: '0.75rem' }}>
+                    <Info size={18} style={{ color: '#8b5cf6' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 600, fontSize: '1rem', color: '#f3f4f6' }}>Basic Information</span>
+                      <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Server identity</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Server Name <span style={{ color: '#ef4444' }}>*</span></label>
+                    <input type="text" className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem' }} placeholder="e.g. Survival World" value={createName} onChange={(e) => setCreateName(e.target.value)} required />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Server Type</label>
+                    <select className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem', width: '100%' }} value={createType} onChange={(e: any) => setCreateType(e.target.value)}>
+                      <option value="PAPER">PaperMC (Vanilla)</option>
+                      <option value="VANILLA">Vanilla Official</option>
+                      <option value="FABRIC">FabricMC (Mods)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Minecraft Version</label>
+                    <select className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem', width: '100%' }} value={createVersion} onChange={(e) => setCreateVersion(e.target.value)}>
+                      <option value="26.2">26.2</option>
+                      <option value="1.21">1.21</option>
+                      <option value="1.20.4">1.20.4</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* RECHTE SPALTE: Configuration */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid #1c182c', paddingBottom: '0.75rem' }}>
+                    <Sliders size={18} style={{ color: '#8b5cf6' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 600, fontSize: '1rem', color: '#f3f4f6' }}>Configuration</span>
+                      <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Performance & network</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Port</label>
+                      <input type="number" className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem' }} value={createPort} onChange={(e) => setCreatePort(Number(e.target.value))} required />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Max Players</label>
+                      <input type="number" className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem' }} value={createMaxPlayers} onChange={(e) => setCreateMaxPlayers(Number(e.target.value))} required />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Voice Port (UDP)</label>
+                    <input type="number" className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem' }} placeholder="e.g. 24454 (SimpleVoiceChat)" value={createVoicePort} onChange={(e) => setCreateVoicePort(e.target.value === '' ? '' : Number(e.target.value))} />
+                    <span style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.15rem' }}>Leave empty if you don't need voice chat. Requires container recreation to change later.</span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Difficulty</label>
+                      <select className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem', width: '100%' }} value={createDifficulty} onChange={(e: any) => setCreateDifficulty(e.target.value)}>
+                        <option value="peaceful">Peaceful</option>
+                        <option value="easy">Easy</option>
+                        <option value="normal">Normal</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.875rem', fontWeight: 500, color: '#f3f4f6' }}>Hardcore</label>
+                      <div onClick={() => setCreateHardcore(!createHardcore)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '44px', border: '1px solid #211c33', borderRadius: '0.5rem', backgroundColor: createHardcore ? 'rgba(239, 68, 68, 0.1)' : '#07050d', color: createHardcore ? '#ef4444' : '#9ca3af', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: createHardcore ? '#ef4444' : '#6b7280', marginRight: '0.5rem' }}></span>
+                        {createHardcore ? 'On' : 'Off'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* UNTERER BLOCK: RAM Presets */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderTop: '1px solid #1c182c', paddingTop: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f3f4f6' }}>RAM <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 400 }}>(max 39 GB available)</span></label>
+                  <span style={{ color: '#8b5cf6', fontWeight: 700 }}>{(createRam / 1024).toFixed(1).replace('.0', '')} GB</span>
+                </div>
+                <input type="number" className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '0.85rem 1.25rem', width: '100%', fontWeight: 700, fontSize: '1.125rem' }} value={createRam} onChange={(e) => setCreateRam(Number(e.target.value))} required />
+                
+                {/* RAM Preset Buttons */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  {ramPresets.map((preset) => (
+                    <button key={preset.value} type="button" onClick={() => setCreateRam(preset.value)} style={{ padding: '0.5rem 1rem', borderRadius: '0.375rem', border: '1px solid', borderColor: createRam === preset.value ? '#8b5cf6' : '#1c182c', backgroundColor: createRam === preset.value ? 'rgba(139, 92, 246, 0.15)' : '#07050d', color: createRam === preset.value ? '#a78bfa' : '#9ca3af', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* UNTERER BLOCK: JVM Arguments */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Servername</label>
-                <input type="text" className="console-input" placeholder="Mein Survival Server" value={createName} onChange={(e) => setCreateName(e.target.value)} required />
+                <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f3f4f6' }}>JVM Arguments</label>
+                <textarea className="console-input" style={{ backgroundColor: '#07050d', borderColor: '#211c33', padding: '1rem', width: '100%', fontFamily: 'monospace', fontSize: '0.875rem', height: '80px', resize: 'none' }} placeholder="Custom JVM flags e.g. -XX:+UseZGC" value={createJvmArgs} onChange={(e) => setCreateJvmArgs(e.target.value)} />
+                <span style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.15rem' }}>-Xms and -Xmx are auto-set from RAM. Leave empty for optimized defaults.</span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Server-Software</label>
-                  <select className="console-input" style={{ width: '100%' }} value={createType} onChange={(e: any) => setCreateType(e.target.value)}>
-                    <option value="PAPER">Paper (Empfohlen)</option>
-                    <option value="VANILLA">Vanilla</option>
-                    <option value="FABRIC">Fabric (Mods)</option>
-                  </select>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Minecraft-Version</label>
-                  <input type="text" className="console-input" placeholder="1.20.4" value={createVersion} onChange={(e) => setCreateVersion(e.target.value)} required />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>RAM Limit (MB)</label>
-                  <input type="number" className="console-input" value={createRam} onChange={(e) => setCreateRam(Number(e.target.value))} required />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Host Port</label>
-                  <input type="number" className="console-input" value={createPort} onChange={(e) => setCreatePort(Number(e.target.value))} required />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)} disabled={loading}>Abbrechen</button>
-                <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Erstelle...' : 'Server erstellen'}
+              {/* BUTTONS */}
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', borderTop: '1px solid #1c182c', paddingTop: '1.5rem' }}>
+                <button type="button" className="btn btn-secondary" style={{ flexGrow: 1, padding: '1rem', justifyContent: 'center' }} onClick={() => setShowCreateModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" style={{ flexGrow: 2, padding: '1rem', justifyContent: 'center', backgroundColor: '#8b5cf6', fontWeight: 700 }} disabled={loading}>
+                  {loading ? 'Creating Server...' : 'Create Server'}
                 </button>
               </div>
+
             </form>
           </div>
         </div>
       )}
 
-      {/* CREATE USER MODAL */}
+      {/* USER MODAL */}
       {showUserModal && (
         <div className="modal-overlay" style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div className="modal-content" style={{ backgroundColor: 'var(--bg-dark)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '2rem', width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Neuen Benutzer einladen</h2>
-            
-            {newUserError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', backgroundColor: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontSize: '0.875rem' }}>
-                <AlertTriangle size={16} />
-                <span>{newUserError}</span>
-              </div>
-            )}
-
+          <div className="modal-content" style={{ backgroundColor: 'var(--bg-dark)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '2rem', width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Neuen Benutzer einladen</h2>
             <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Benutzername</label>
-                <input type="text" className="console-input" placeholder="basti_player" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Passwort</label>
-                <input type="password" className="console-input" placeholder="••••••••" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} required />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Rolle</label>
-                <select className="console-input" style={{ width: '100%' }} value={newUserRole} onChange={(e: any) => setNewUserRole(e.target.value)}>
-                  <option value="ADMIN">Administrator</option>
-                  <option value="OPERATOR">Operator</option>
-                  <option value="VIEWER">Viewer</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowUserModal(false)} disabled={loading}>Abbrechen</button>
-                <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Erstelle...' : 'Benutzer erstellen'}
-                </button>
+              <input type="text" className="console-input" placeholder="Benutzername" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required />
+              <input type="password" className="console-input" placeholder="Passwort" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} required />
+              <select className="console-input" style={{ width: '100%' }} value={newUserRole} onChange={(e: any) => setNewUserRole(e.target.value)}>
+                <option value="ADMIN">Administrator</option>
+                <option value="OPERATOR">Operator</option>
+                <option value="VIEWER">Viewer</option>
+              </select>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowUserModal(false)}>Abbrechen</button>
+                <button type="submit" className="btn btn-primary">Erstellen</button>
               </div>
             </form>
           </div>
@@ -1040,44 +889,22 @@ export default function App() {
       {/* PROFILE SETTINGS MODAL */}
       {showProfileModal && (
         <div className="modal-overlay" style={{ position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div className="modal-content" style={{ backgroundColor: 'var(--bg-dark)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '2rem', width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Passwort ändern</h2>
-            
-            {profileMessage && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', backgroundColor: 'var(--color-success-bg)', color: 'var(--color-success)', fontSize: '0.875rem' }}>
-                <CheckCircle size={16} />
-                <span>{profileMessage}</span>
-              </div>
-            )}
-
-            {profileError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', backgroundColor: 'var(--color-danger-bg)', color: 'var(--color-danger)', fontSize: '0.875rem' }}>
-                <AlertTriangle size={16} />
-                <span>{profileError}</span>
-              </div>
-            )}
-
+          <div className="modal-content" style={{ backgroundColor: 'var(--bg-dark)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', padding: '2rem', width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Passwort ändern</h2>
+            {profileMessage && <div style={{ color: 'var(--color-success)' }}>{profileMessage}</div>}
+            {profileError && <div style={{ color: 'var(--color-danger)' }}>{profileError}</div>}
             <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Aktuelles Passwort</label>
-                <input type="password" className="console-input" placeholder="••••••••" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Neues Passwort</label>
-                <input type="password" className="console-input" placeholder="Mind. 6 Zeichen" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => { setShowProfileModal(false); setProfileError(''); setProfileMessage(''); }} disabled={loading}>Schließen</button>
-                <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Ändere...' : 'Passwort ändern'}
-                </button>
+              <input type="password" className="console-input" placeholder="Aktuelles Passwort" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required />
+              <input type="password" className="console-input" placeholder="Neues Passwort" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowProfileModal(false)}>Schließen</button>
+                <button type="submit" className="btn btn-primary">Ändern</button>
               </div>
             </form>
           </div>
         </div>
       )}
+
     </div>
   );
 }

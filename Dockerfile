@@ -6,6 +6,7 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install --no-audit --no-fund
 COPY frontend/ .
+# Baut das modernisierte React Frontend
 RUN npm run build
 
 # ==========================================

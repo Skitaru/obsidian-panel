@@ -16,7 +16,7 @@ const dbPath = process.env.DATABASE_URL
 console.log(`Verbinde mit SQLite Datenbank unter: ${dbPath}`);
 const db = new Database(dbPath);
 
-// Tabellen initialisieren
+// Tabellen initialisieren & Schema-Updates durchführen
 export function initDb() {
   // 1. Tabelle für Benutzer
   db.exec(`
@@ -30,7 +30,7 @@ export function initDb() {
     )
   `);
 
-  // 2. Tabelle für Server
+  // 2. Tabelle für Server (mit allen neuen UI-Features aus dem Screenshot!)
   db.exec(`
     CREATE TABLE IF NOT EXISTS servers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,12 +39,37 @@ export function initDb() {
       type TEXT CHECK(type IN ('VANILLA', 'PAPER', 'FABRIC')) NOT NULL,
       version TEXT NOT NULL,
       status TEXT CHECK(status IN ('ONLINE', 'OFFLINE', 'STARTING', 'STOPPING')) DEFAULT 'OFFLINE',
-      max_ram INTEGER NOT NULL, -- in MB
-      max_cpu INTEGER NOT NULL, -- in % (z.B. 100 für 1 Core)
-      port INTEGER UNIQUE NOT NULL,
+      max_ram INTEGER NOT NULL,            -- in MB (z.B. 4096)
+      max_cpu INTEGER NOT NULL,            -- CPU in % (Standard: 100)
+      port INTEGER UNIQUE NOT NULL,        -- Minecraft Port (Standard: 25565)
+      max_players INTEGER DEFAULT 20,       -- Max Players Limit
+      voice_port INTEGER DEFAULT NULL,     -- Voice Port (SimpleVoiceChat UDP)
+      difficulty TEXT CHECK(difficulty IN ('peaceful', 'easy', 'normal', 'hard')) DEFAULT 'normal',
+      hardcore BOOLEAN DEFAULT 0,          -- Hardcore-Modus (0 oder 1)
+      jvm_args TEXT DEFAULT NULL,          -- Benutzerdefinierte JVM-Startargumente
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Schema Migration: Spalten hinzufügen, falls sie in einer älteren DB fehlen
+  const columns = db.prepare("PRAGMA table_info(servers)").all() as any[];
+  const colNames = columns.map(c => c.name);
+
+  if (!colNames.includes('max_players')) {
+    db.exec("ALTER TABLE servers ADD COLUMN max_players INTEGER DEFAULT 20");
+  }
+  if (!colNames.includes('voice_port')) {
+    db.exec("ALTER TABLE servers ADD COLUMN voice_port INTEGER DEFAULT NULL");
+  }
+  if (!colNames.includes('difficulty')) {
+    db.exec("ALTER TABLE servers ADD COLUMN difficulty TEXT CHECK(difficulty IN ('peaceful', 'easy', 'normal', 'hard')) DEFAULT 'normal'");
+  }
+  if (!colNames.includes('hardcore')) {
+    db.exec("ALTER TABLE servers ADD COLUMN hardcore BOOLEAN DEFAULT 0");
+  }
+  if (!colNames.includes('jvm_args')) {
+    db.exec("ALTER TABLE servers ADD COLUMN jvm_args TEXT DEFAULT NULL");
+  }
 
   // 3. Tabelle für Benutzer-Server Berechtigungen
   db.exec(`

@@ -38,10 +38,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     let servers: any[] = [];
     
     if (req.user!.role === 'ADMIN') {
-      // Admins sehen alle Server
       servers = db.prepare('SELECT * FROM servers ORDER BY name ASC').all();
     } else {
-      // Normale Nutzer sehen nur Server, für die sie Berechtigungen haben
       servers = db.prepare(`
         SELECT s.*, us.permission 
         FROM servers s 
@@ -51,12 +49,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       `).all(req.user!.id);
     }
 
-    // Aktualisiere dynamisch den Status direkt aus Docker für jeden Server
     const serversWithStatus = await Promise.all(servers.map(async (srv) => {
       if (srv.container_id) {
         const liveStatus = await getContainerState(srv.container_id);
-        
-        // Status in DB aktualisieren falls abweichend
         if (liveStatus !== srv.status) {
           db.prepare('UPDATE servers SET status = ? WHERE id = ?').run(liveStatus, srv.id);
           srv.status = liveStatus;
@@ -85,7 +80,6 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const server = db.prepare('SELECT * FROM servers WHERE id = ?').get(serverId) as any;
     if (!server) return res.status(404).json({ error: 'Server nicht gefunden.' });
 
-    // Live-Status holen
     if (server.container_id) {
       server.status = await getContainerState(server.container_id);
     }
@@ -96,9 +90,20 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/servers - Neuen Minecraft-Server erstellen (Nur Operator & Admin)
+// POST /api/servers - Neuen Minecraft-Server erstellen (Mit allen neuen Parametern!)
 router.post('/', requireOperator as any, async (req: AuthRequest, res: Response) => {
-  const { name, type, version, maxRam, port } = req.body;
+  const { 
+    name, 
+    type, 
+    version, 
+    maxRam, 
+    port, 
+    maxPlayers, 
+    voicePort, 
+    difficulty, 
+    hardcore, 
+    jvmArgs 
+  } = req.body;
 
   if (!name || !type || !version || !maxRam || !port) {
     return res.status(400).json({ error: 'Name, Typ (VANILLA/PAPER/FABRIC), Version, RAM und Port sind erforderlich.' });
@@ -109,28 +114,50 @@ router.post('/', requireOperator as any, async (req: AuthRequest, res: Response)
   }
 
   try {
-    // Prüfen, ob der Port bereits vergeben ist
+    // Port prüfen
     const portInUse = db.prepare('SELECT id FROM servers WHERE port = ?').get(port);
     if (portInUse) {
       return res.status(400).json({ error: `Der Port ${port} wird bereits von einem anderen Server verwendet.` });
     }
 
-    // 1. Server-Datensatz in DB anlegen (vorübergehend ohne Container ID)
+    // 1. In SQLite registrieren
     const result = db.prepare(`
-      INSERT INTO servers (name, type, version, max_ram, max_cpu, port, status) 
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(name, type, version, maxRam, 100, port, 'OFFLINE');
+      INSERT INTO servers (
+        name, type, version, max_ram, max_cpu, port, status,
+        max_players, voice_port, difficulty, hardcore, jvm_args
+      ) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      name, type, version, maxRam, 100, port, 'OFFLINE',
+      maxPlayers || 20,
+      voicePort || null,
+      difficulty || 'normal',
+      hardcore ? 1 : 0,
+      jvmArgs || null
+    );
 
     const serverId = Number(result.lastInsertRowid);
 
-    // 2. Docker-Container erstellen
-    console.log(`Erstelle Docker Container für Server '${name}' (ID: ${serverId})...`);
-    const containerId = await createMinecraftContainer(serverId, name, type, version, maxRam, port);
+    // 2. Docker Container erstellen
+    console.log(`Erstelle advanced Docker Container für Server '${name}' (ID: ${serverId})...`);
+    const containerId = await createMinecraftContainer(
+      serverId, 
+      name, 
+      type, 
+      version, 
+      maxRam, 
+      port,
+      maxPlayers,
+      voicePort,
+      difficulty,
+      hardcore,
+      jvmArgs
+    );
 
-    // 3. DB-Eintrag mit der echten Container-ID aktualisieren
+    // 3. Container-ID in DB speichern
     db.prepare('UPDATE servers SET container_id = ? WHERE id = ?').run(containerId, serverId);
 
-    // 4. Wenn der Ersteller kein Admin ist, ihm volle Rechte (OWNER) für diesen Server geben
+    // 4. OWNER-Rechte zuweisen
     if (req.user!.role !== 'ADMIN') {
       db.prepare('INSERT INTO user_servers (user_id, server_id, permission) VALUES (?, ?, ?)')
         .run(req.user!.id, serverId, 'OWNER');
@@ -138,7 +165,7 @@ router.post('/', requireOperator as any, async (req: AuthRequest, res: Response)
 
     res.status(201).json({
       success: true,
-      message: 'Minecraft Server erfolgreich erstellt und registriert.',
+      message: 'Minecraft Server erfolgreich erstellt.',
       server: {
         id: serverId,
         name,
@@ -187,10 +214,8 @@ router.post('/:id/stop', async (req: AuthRequest, res: Response) => {
     const server = db.prepare('SELECT container_id, name FROM servers WHERE id = ?').get(serverId) as any;
     if (!server || !server.container_id) return res.status(404).json({ error: 'Server nicht gefunden.' });
 
-    // Status sofort auf 'STOPPING' setzen für visuelles Feedback
     db.prepare('UPDATE servers SET status = ? WHERE id = ?').run('STOPPING', serverId);
     
-    // Asynchron stoppen, um HTTP-Antwort nicht zu blockieren
     stopServer(server.container_id).then(() => {
       db.prepare('UPDATE servers SET status = ? WHERE id = ?').run('OFFLINE', serverId);
     }).catch(err => {
@@ -256,19 +281,13 @@ router.delete('/:id', requireAdmin as any, async (req: AuthRequest, res: Respons
     const server = db.prepare('SELECT container_id, name FROM servers WHERE id = ?').get(serverId) as any;
     if (!server) return res.status(404).json({ error: 'Server nicht gefunden.' });
 
-    // 1. Docker Container stoppen & löschen
     if (server.container_id) {
       console.log(`Lösche Docker Container für Server '${server.name}'...`);
       await deleteServerContainer(server.container_id);
     }
 
-    // 2. Aus SQLite löschen (Benutzerberechtigungen werden durch ON DELETE CASCADE automatisch gelöscht)
     db.prepare('DELETE FROM servers WHERE id = ?').run(serverId);
-
-    // Bemerkung: Minecraft Spieldaten unter /opt/obsidian-panel/servers/srv-<id> werden absichtlich
-    // nicht automatisch gelöscht, um Datenverlust zu verhindern. Admins können das Verzeichnis manuell entfernen.
-
-    res.json({ success: true, message: `Server '${server.name}' wurde erfolgreich gelöscht. Spieldaten auf dem Host blieben unberührt.` });
+    res.json({ success: true, message: `Server '${server.name}' wurde erfolgreich gelöscht.` });
   } catch (error: any) {
     console.error('Fehler beim Löschen des Servers:', error);
     res.status(500).json({ error: `Serverlöschung fehlgeschlagen: ${error.message || error}` });
