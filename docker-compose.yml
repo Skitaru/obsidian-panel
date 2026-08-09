@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # Docker Socket Proxy zur Absicherung des Docker-Zugriffs
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: obsidian-socket-proxy
+    privileged: false
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CONTAINERS=1   # Erlaubt das Verwalten von Containern
+      - VOLUMES=1      # Erlaubt das Verwalten von Volumes
+      - IMAGES=1       # Erlaubt das Herunterladen von Minecraft-Images
+      - NETWORKS=1     # Erlaubt Netzwerkzuweisungen
+      - POST=1         # Erlaubt das Erstellen/Starten
+      - DELETE=1       # Erlaubt das Löschen von Containern
+    ports:
+      - "127.0.0.1:2375:2375" # Nur lokal zugänglich
+    restart: always
+
+  # Das Haupt-Web-Panel (Backend + Frontend)
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obsidian-panel
+    ports:
+      - "${PANEL_PORT:-8080}:8080"
+    environment:
+      - NODE_ENV=production
+      - DOCKER_HOST=tcp://socket-proxy:2375 # Kommuniziert über den sicheren Proxy
+      - JWT_SECRET=${JWT_SECRET:-super_secret_obsidian_token_key}
+      - INITIAL_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - DATABASE_URL=file:/app/data/obsidian.db
+      - HOST_SERVERS_PATH=/opt/obsidian-panel/servers # Pfad auf dem Host
+    volumes:
+      # SQLite DB Persistenz
+      - ./data:/app/data
+      # Server-Verzeichnis-Mount, damit das Panel auf Minecraft-Dateien zugreifen kann (z.B. für File-Manager)
+      - /opt/obsidian-panel/servers:/opt/obsidian-panel/servers
+    depends_on:
+      - socket-proxy
+    restart: always
