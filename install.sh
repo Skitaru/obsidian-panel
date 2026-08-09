@@ -112,29 +112,38 @@ run "Set permissions" chmod -R 770 /opt/obsidian-panel
 # --------------------------------------------------
 step 5 $TOTAL_STEPS "Setup Configuration"
 
-# Zufälliges JWT Secret generieren
-JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "obsidian_default_secret_key_12345")
-
-# Nur abfragen, wenn interaktiv und Variablen nicht übergeben wurden
-if [ -c /dev/tty ]; then
-  clear
-  echo
-  echo -e "  ${G}▓▒░${N} ${BOLD}${W}OBSIDIAN PANEL${N} ${DIM}·  Configuration${N}"
-  echo -e "  ${G}────────────────────────────────${N}"
-  echo
-  
-  if [ -z "$ADMIN_PASSWORD" ]; then
-    printf "  ${BOLD}${W}Initiales Admin-Passwort${N} [Standard: obsidian123]: "
-    read -r ans < /dev/tty
-    ADMIN_PASSWORD="${ans:-obsidian123}"
-  fi
-  
-  printf "  ${BOLD}${W}Web-Interface Port${N} [Standard: 8080]: "
-  read -r ans < /dev/tty
-  PANEL_PORT="${ans:-8080}"
+# Bestehende Konfiguration laden falls existent, um Werte zu erhalten
+if [ -f .env ]; then
+  # .env Variablen exportieren, um sie in diesem Skript zu nutzen
+  set -a
+  source .env
+  set +a
+  warn "Bestehende Konfiguration geladen (Passwort & Port bleiben unverändert)."
 else
-  # Nicht interaktives Fallback
-  ADMIN_PASSWORD="${ADMIN_PASSWORD:-obsidian123}"
+  # Zufälliges JWT Secret generieren
+  JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "obsidian_default_secret_key_12345")
+
+  # Nur abfragen, wenn interaktiv und Variablen nicht übergeben wurden
+  if [ -c /dev/tty ]; then
+    clear
+    echo
+    echo -e "  ${G}▓▒░${N} ${BOLD}${W}OBSIDIAN PANEL${N} ${DIM}·  Configuration${N}"
+    echo -e "  ${G}────────────────────────────────${N}"
+    echo
+    
+    if [ -z "$ADMIN_PASSWORD" ]; then
+      printf "  ${BOLD}${W}Initiales Admin-Passwort${N} [Standard: obsidian123]: "
+      read -r ans < /dev/tty
+      ADMIN_PASSWORD="${ans:-obsidian123}"
+    fi
+    
+    printf "  ${BOLD}${W}Web-Interface Port${N} [Standard: 8080]: "
+    read -r ans < /dev/tty
+    PANEL_PORT="${ans:-8080}"
+  else
+    # Nicht interaktives Fallback
+    ADMIN_PASSWORD="${ADMIN_PASSWORD:-obsidian123}"
+  fi
 fi
 
 cat > .env << EOF
