@@ -22,7 +22,7 @@ step() {
   local bar=""
   for i in $(seq 1 $filled); do bar="${bar}█"; done
   for i in $(seq $((filled+1)) 30); do bar="${bar}░"; done
-  clear
+  clear 2>/dev/null || true
   echo
   echo -e "  ${G}▓▒░${N} ${BOLD}${W}OBSIDIAN PANEL${N} ${DIM}·  Installer${N}"
   echo -e "  ${G}────────────────────────────────${N}"
