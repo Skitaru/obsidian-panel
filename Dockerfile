@@ -4,13 +4,22 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-# Nutzt npm install da im Repository standardmäßig keine lockfiles erzwungen werden
 RUN npm install --no-audit --no-fund
 COPY frontend/ .
 RUN npm run build
 
 # ==========================================
-# 2. Backend Build- & Runner-Stage
+# 2. Backend Build-Stage (Kompiliert TypeScript)
+# ==========================================
+FROM node:20-alpine AS backend-builder
+WORKDIR /app/backend
+COPY backend/package*.json ./
+RUN npm install --no-audit --no-fund
+COPY backend/ .
+RUN npm run build
+
+# ==========================================
+# 3. Production Runner-Stage (Schlankes Laufzeit-Image)
 # ==========================================
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -18,15 +27,15 @@ WORKDIR /app
 # Erstelle Verzeichnisse für Daten und Minecraft Server-Dateien
 RUN mkdir -p /app/data /opt/obsidian-panel/servers
 
-# Backend-Abhängigkeiten installieren
+# Nur Produktions-Abhängigkeiten für das Backend installieren (spart enorm viel Platz)
 COPY backend/package*.json ./
 RUN npm install --only=production --no-audit --no-fund
 
-# Kopiere Backend-Dateien
-COPY backend/ .
+# Kopiere das kompilierte Backend-JS aus Stage 2
+COPY --from=backend-builder /app/backend/dist ./dist
 
-# Kopiere das kompilierte React-Frontend in den statischen Ordner des Backends
-COPY --from=frontend-builder /app/frontend/dist /app/public
+# Kopiere das kompilierte React-Frontend aus Stage 1
+COPY --from=frontend-builder /app/frontend/dist ./public
 
 # Setze Umgebungsvariablen
 ENV PORT=8080
